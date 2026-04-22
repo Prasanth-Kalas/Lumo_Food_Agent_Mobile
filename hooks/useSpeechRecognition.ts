@@ -16,10 +16,31 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-} from "expo-speech-recognition";
+
+// expo-speech-recognition is a native module. It exists only in EAS builds
+// (dev client / preview / production) and in `npx expo run:ios|android`
+// binaries. In Expo Go — or any build where the plugin didn't link — the
+// static ESM import below would evaluate at bundle-load time and throw
+// "Cannot find native module 'ExpoSpeechRecognition'", taking the whole app
+// down with a red screen. Load it lazily so the app boots and we simply
+// report STT as unsupported, letting the UI hide the mic affordance.
+type ExpoSRModule =
+  | typeof import("expo-speech-recognition").ExpoSpeechRecognitionModule
+  | null;
+let ExpoSpeechRecognitionModule: ExpoSRModule = null;
+// Stubbed hook is a no-op when the native side is absent — React still
+// renders the caller's tree, the registered listeners just never fire.
+let useSpeechRecognitionEvent: (...args: unknown[]) => void = () => {};
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const mod = require("expo-speech-recognition");
+  ExpoSpeechRecognitionModule = mod.ExpoSpeechRecognitionModule ?? null;
+  if (typeof mod.useSpeechRecognitionEvent === "function") {
+    useSpeechRecognitionEvent = mod.useSpeechRecognitionEvent;
+  }
+} catch {
+  // Swallow — supportRef.current will be false, start() early-returns.
+}
 
 export interface UseSpeechRecognitionOpts {
   /** Fires once when the engine commits a final transcript. */
@@ -86,6 +107,10 @@ export function useSpeechRecognition(opts: UseSpeechRecognitionOpts = {}) {
       return;
     }
 
+    // supportRef.current being true implies ExpoSpeechRecognitionModule
+    // resolved — this guard is belt-and-suspenders for TS narrowing.
+    if (!ExpoSpeechRecognitionModule) return;
+
     // Request mic + speech recognition permissions. First call triggers the
     // native dialog; subsequent calls return the cached decision.
     const perm =
@@ -112,14 +137,14 @@ export function useSpeechRecognition(opts: UseSpeechRecognitionOpts = {}) {
   const stop = useCallback(() => {
     // stop() lets the engine finish and emit a final result. abort() would
     // cut immediately — we prefer the gentle path.
-    ExpoSpeechRecognitionModule.stop();
+    ExpoSpeechRecognitionModule?.stop();
   }, []);
 
   // Safety net: if the component unmounts mid-listen, don't leak the session.
   useEffect(() => {
     return () => {
       try {
-        ExpoSpeechRecognitionModule.abort();
+        ExpoSpeechRecognitionModule?.abort();
       } catch {
         // Module may already be idle — ignore.
       }
