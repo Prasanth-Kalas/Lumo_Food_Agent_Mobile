@@ -20,6 +20,8 @@ import {
 } from "lucide-react-native";
 import { useLumoChat } from "@/hooks/useLumoChat";
 import { useSpeech } from "@/hooks/useSpeech";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import { useVoiceModePref } from "@/hooks/useVoiceModePref";
 import { colors } from "@/lib/colors";
 import type { ChatMessage } from "@/lib/types";
 import { MessageBubble } from "@/components/MessageBubble";
@@ -37,11 +39,39 @@ const SUGGESTIONS = [
 export default function ChatScreen() {
   const { messages, isLoading, append, stop } = useLumoChat();
   const [input, setInput] = useState("");
-  const [voiceMode, setVoiceMode] = useState(false);
+  const { voiceMode, toggleVoiceMode } = useVoiceModePref();
   const insets = useSafeAreaInsets();
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const speech = useSpeech();
   const lastSpokenIdRef = useRef<string | null>(null);
+
+  // STT: live transcript streams into the input field; final transcript is
+  // sent as a new message (mirrors the web behavior).
+  // We hold a ref to the pre-STT input value so a mid-dictation cancel
+  // restores what the user was typing rather than wiping it.
+  const inputBeforeSttRef = useRef<string>("");
+  const stt = useSpeechRecognition({
+    onInterimTranscript: (text) => {
+      // Replace the dictation portion with the latest partial.
+      const base = inputBeforeSttRef.current;
+      setInput(base ? `${base} ${text}` : text);
+    },
+    onFinalTranscript: (text) => {
+      const base = inputBeforeSttRef.current;
+      const combined = base ? `${base} ${text}` : text;
+      inputBeforeSttRef.current = "";
+      setInput("");
+      // Barge-in again in case TTS was re-triggered between start() and now.
+      speech.silence();
+      append(combined);
+    },
+    onError: (msg) => {
+      // Soft failure — just bail out of dictation mode. A toast would be
+      // nicer but we don't have a toast primitive yet.
+      console.warn("[stt]", msg);
+      inputBeforeSttRef.current = "";
+    },
+  });
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -72,11 +102,29 @@ export default function ChatScreen() {
   };
 
   const toggleVoice = () => {
-    setVoiceMode((v) => {
-      const next = !v;
-      if (!next) speech.silence();
-      return next;
-    });
+    // When flipping voice mode off, hush any in-flight TTS immediately.
+    if (voiceMode) speech.silence();
+    toggleVoiceMode();
+  };
+
+  const onMicPress = () => {
+    if (!stt.support.stt) {
+      // Surfaces when running in Expo Go (no native module) or on a device
+      // that doesn't ship speech recognition. Falls back to the keyboard.
+      console.warn(
+        "[stt] Speech recognition unavailable. Use an EAS build on a real device."
+      );
+      return;
+    }
+    if (stt.isListening) {
+      stt.stop();
+      return;
+    }
+    // Barge-in: TTS must stop before the mic opens, otherwise Lumo's own
+    // voice feeds into the recognizer on the next breath.
+    speech.silence();
+    inputBeforeSttRef.current = input.trim();
+    stt.start();
   };
 
   return (
@@ -132,11 +180,36 @@ export default function ChatScreen() {
           ]}
         >
           <Pressable
-            style={styles.micButton}
-            accessibilityLabel="Voice input — coming in v0.2"
-            disabled
+            onPress={onMicPress}
+            disabled={!stt.support.stt || isLoading}
+            style={[
+              styles.micButton,
+              stt.isListening && styles.micButtonActive,
+              (!stt.support.stt || isLoading) && styles.micButtonDisabled,
+            ]}
+            accessibilityRole="button"
+            accessibilityState={{
+              disabled: !stt.support.stt || isLoading,
+              busy: stt.isListening,
+            }}
+            accessibilityLabel={
+              !stt.support.stt
+                ? "Voice input unavailable on this device"
+                : stt.isListening
+                  ? "Listening — tap to stop"
+                  : "Start voice input"
+            }
           >
-            <Mic color={colors.ink[400]} size={20} />
+            <Mic
+              color={
+                stt.isListening
+                  ? colors.white
+                  : stt.support.stt
+                    ? colors.lumo[600]
+                    : colors.ink[400]
+              }
+              size={20}
+            />
           </Pressable>
           <TextInput
             value={input}
@@ -335,7 +408,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     alignItems: "center",
     justifyContent: "center",
-    opacity: 0.6,
+  },
+  micButtonActive: {
+    backgroundColor: colors.lumo[500],
+    borderColor: colors.lumo[500],
+  },
+  micButtonDisabled: {
+    opacity: 0.4,
   },
   input: {
     flex: 1,

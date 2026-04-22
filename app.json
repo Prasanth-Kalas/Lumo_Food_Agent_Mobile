@@ -41,6 +41,14 @@
           "image": "./assets/splash.png",
           "backgroundColor": "#4361ee"
         }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Let Lumo listen so you can talk to it instead of typing your order.",
+          "speechRecognitionPermission": "Lumo turns your voice into text to understand your order.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+        }
       ]
     ],
     "experiments": {

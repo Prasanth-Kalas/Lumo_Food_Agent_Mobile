@@ -19,7 +19,10 @@ lumo-food-agent-mobile/
 │   ├── TypingIndicator.tsx
 │   └── SuggestionRow.tsx
 ├── hooks/
-│   └── useLumoChat.ts       # Local stream parser, no ai/react dependency
+│   ├── useLumoChat.ts          # Local stream parser, no ai/react dependency
+│   ├── useSpeech.ts            # expo-speech TTS wrapper (Lumo speaks back)
+│   ├── useSpeechRecognition.ts # expo-speech-recognition STT wrapper
+│   └── useVoiceModePref.ts     # AsyncStorage-backed voice-mode toggle
 ├── lib/
 │   ├── api.ts               # streamChat() — parses the Vercel AI SDK data stream
 │   ├── types.ts             # Domain types (mirror of backend)
@@ -50,6 +53,12 @@ npx expo start
 ```
 
 Press `i` for iOS simulator, `a` for Android, or scan the QR from Expo Go.
+
+> **Heads up on Expo Go:** voice input (STT) relies on `expo-speech-recognition`,
+> which is a native module that ships only in a dev client or EAS build. In
+> Expo Go the mic button detects the missing module and stays inert — the rest
+> of the app (chat, TTS, tool cards) works fine. For real voice testing, use
+> `npx expo prebuild && npx expo run:ios` locally, or ship a preview EAS build.
 
 ### Pointing at the local Next.js server
 
@@ -155,13 +164,14 @@ The installed app pulls the JS bundle on next cold start — no re-install.
 - No persistent auth — the backend pins everything to session `"demo"` for now.
 - No push notifications — ETA updates arrive only while the app is open. Add
   `expo-notifications` + the Apple Push/FCM wiring for v0.2.
-- Device voice — half there. TTS works via `expo-speech` (Lumo talks back
-  when Voice mode is on in the header). STT is not wired yet — the mic button
-  is still disabled on mobile. When voice input lands, plug in
-  `expo-speech-recognition` (native module, requires prebuild) or Deepgram
-  streaming over WebSocket.
-- Order history resets when the backend restarts (in-memory Map). Fine for 50
-  testers; swap in Postgres before that's not.
+- **Device voice** — fully wired in **EAS / dev-client builds**, inert in Expo
+  Go. TTS uses `expo-speech`; STT uses `expo-speech-recognition` (config plugin
+  already registered in `app.json`, with mic + speech-recognition permission
+  strings). The Voice toggle in the header is persisted across launches via
+  `AsyncStorage` (key `lumo.voiceMode`, same semantics as the web app). To
+  enable STT locally: `npx expo prebuild && npx expo run:ios` (or `:android`).
+- Order history now persists in Postgres when `DATABASE_URL` is set on the
+  backend (Sprint B). Falls back to in-memory Maps in local dev without env.
 
 ---
 
