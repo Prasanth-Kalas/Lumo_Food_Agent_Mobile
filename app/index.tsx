@@ -258,7 +258,7 @@ function Header({
         </View>
         <View>
           <Text style={styles.logoTitle}>Lumo</Text>
-          <Text style={styles.logoSub}>Austin, TX · open now</Text>
+          <Text style={styles.logoSub}>Austin · LA · SF · Chicago</Text>
         </View>
       </View>
       <View style={styles.headerRight}>
