@@ -63,7 +63,8 @@
           "merchantIdentifier": "merchant.com.lumotechnologies.lumo",
           "enableGooglePay": false
         }
-      ]
+      ],
+      "expo-build-properties"
     ],
     "experiments": {
       "typedRoutes": true
