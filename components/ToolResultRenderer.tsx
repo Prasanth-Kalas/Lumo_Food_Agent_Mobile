@@ -1,9 +1,12 @@
+import { useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import {
   Check,
   ChefHat,
   Clock,
   MapPin,
+  Minus,
+  Plus,
   ShoppingBag,
   Star,
   Truck,
@@ -47,9 +50,10 @@ export function ToolResultRenderer({
       );
     case "menu":
       return (
-        <MenuPreview
+        <MenuCard
           restaurantName={result.restaurant_name}
           items={result.items}
+          onAdd={onQuickReply}
         />
       );
     case "cart":
@@ -290,49 +294,166 @@ const cardStyles = StyleSheet.create({
 });
 
 // -------------------------------------------------------------------------
-// Menu preview
+// Menu card — interactive multi-select with checkboxes + qty stepper.
+//
+// Users were having to type "add pepperoni and garlic knots" after seeing
+// the menu, which defeats the whole point of rendering the menu as a rich
+// card. Now each row is tappable: first tap adds qty=1 (checkbox fills in),
+// subsequent taps via the −/+ stepper adjust qty. A sticky footer CTA
+// summarizes the selection and fires a single natural-language message
+// to the agent ("Add to cart: 2× Large Pepperoni, Garlic Knots."). The
+// agent already has the menu in context from the immediately-preceding
+// get_restaurant_menu call, so it resolves names → item_ids reliably.
+//
+// After the user taps Add, we clear local qty state so the card goes
+// back to a clean slate — if Lumo's response builds the cart, the cart
+// summary card supersedes this one anyway.
 // -------------------------------------------------------------------------
 
-function MenuPreview({
+function MenuCard({
   restaurantName,
   items,
+  onAdd,
 }: {
   restaurantName: string;
   items: MenuItem[];
+  onAdd: (text: string) => void;
 }) {
-  const preview = items.slice(0, 4);
-  const more = Math.max(0, items.length - preview.length);
+  const [qty, setQty] = useState<Record<string, number>>({});
+
+  const selectedItems = items.filter((item) => (qty[item.id] ?? 0) > 0);
+  const selectedCount = selectedItems.reduce(
+    (sum, item) => sum + (qty[item.id] ?? 0),
+    0
+  );
+  const selectedTotal = selectedItems.reduce(
+    (sum, item) => sum + (qty[item.id] ?? 0) * item.price_cents,
+    0
+  );
+
+  function inc(id: string) {
+    setQty((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
+  }
+  function dec(id: string) {
+    setQty((prev) => {
+      const next = (prev[id] ?? 0) - 1;
+      if (next <= 0) {
+        const { [id]: _drop, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [id]: next };
+    });
+  }
+
+  function handleAdd() {
+    if (selectedCount === 0) return;
+    const parts = selectedItems.map((item) => {
+      const n = qty[item.id]!;
+      return n === 1 ? item.name : `${n}× ${item.name}`;
+    });
+    onAdd(`Add to cart: ${parts.join(", ")}.`);
+    setQty({});
+  }
+
   return (
     <View style={menuStyles.card}>
       <View style={menuStyles.header}>
         <Utensils size={14} color={colors.lumo[500]} />
         <Text style={menuStyles.headerText}>{restaurantName} menu</Text>
       </View>
-      {preview.map((item, i) => (
-        <View
-          key={item.id}
-          style={[
-            menuStyles.row,
-            i !== 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: colors.ink[100] },
-          ]}
-        >
-          <View style={{ flex: 1 }}>
-            <Text style={menuStyles.itemName} numberOfLines={1}>
-              {item.name}
-            </Text>
-            {!!item.description && (
-              <Text style={menuStyles.itemDesc} numberOfLines={2}>
-                {item.description}
-              </Text>
+
+      {items.map((item, i) => {
+        const n = qty[item.id] ?? 0;
+        const checked = n > 0;
+        return (
+          <View
+            key={item.id}
+            style={[
+              menuStyles.row,
+              i !== 0 && {
+                borderTopWidth: StyleSheet.hairlineWidth,
+                borderTopColor: colors.ink[100],
+              },
+            ]}
+          >
+            {/* Left control: checkbox when unchecked, stepper when checked */}
+            {checked ? (
+              <View style={menuStyles.stepper}>
+                <Pressable
+                  onPress={() => dec(item.id)}
+                  hitSlop={6}
+                  style={({ pressed }) => [
+                    menuStyles.stepBtn,
+                    pressed && { backgroundColor: colors.ink[100] },
+                  ]}
+                >
+                  <Minus size={12} color={colors.ink[700]} />
+                </Pressable>
+                <Text style={menuStyles.stepQty}>{n}</Text>
+                <Pressable
+                  onPress={() => inc(item.id)}
+                  hitSlop={6}
+                  style={({ pressed }) => [
+                    menuStyles.stepBtn,
+                    pressed && { backgroundColor: colors.ink[100] },
+                  ]}
+                >
+                  <Plus size={12} color={colors.ink[700]} />
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable
+                onPress={() => inc(item.id)}
+                hitSlop={8}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: false }}
+                accessibilityLabel={`Add ${item.name}`}
+                style={({ pressed }) => [
+                  menuStyles.checkbox,
+                  pressed && { borderColor: colors.lumo[400] },
+                ]}
+              />
             )}
+
+            {/* Main body: tappable when unchecked to add +1 */}
+            <Pressable
+              onPress={() => {
+                if (!checked) inc(item.id);
+              }}
+              style={{ flex: 1 }}
+            >
+              <Text style={menuStyles.itemName} numberOfLines={1}>
+                {item.name}
+              </Text>
+              {!!item.description && (
+                <Text style={menuStyles.itemDesc} numberOfLines={2}>
+                  {item.description}
+                </Text>
+              )}
+            </Pressable>
+
+            <Text style={menuStyles.itemPrice}>
+              {formatPrice(item.price_cents)}
+            </Text>
           </View>
-          <Text style={menuStyles.itemPrice}>
-            {formatPrice(item.price_cents)}
-          </Text>
+        );
+      })}
+
+      {selectedCount > 0 && (
+        <View style={menuStyles.footer}>
+          <Pressable
+            onPress={handleAdd}
+            style={({ pressed }) => [
+              menuStyles.addBtn,
+              pressed && { backgroundColor: colors.lumo[600] },
+            ]}
+          >
+            <Text style={menuStyles.addText}>
+              Add {selectedCount} item{selectedCount === 1 ? "" : "s"} ·{" "}
+              {formatPrice(selectedTotal)}
+            </Text>
+          </Pressable>
         </View>
-      ))}
-      {more > 0 && (
-        <Text style={menuStyles.more}>+{more} more item{more === 1 ? "" : "s"}</Text>
       )}
     </View>
   );
@@ -350,14 +471,59 @@ const menuStyles = StyleSheet.create({
   headerText: { fontSize: 13, fontWeight: "600", color: colors.ink[900] },
   row: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     gap: 12,
-    paddingVertical: 8,
+    paddingVertical: 10,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.ink[300],
+    backgroundColor: colors.white,
+  },
+  stepper: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 22,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.lumo[200],
+    backgroundColor: colors.lumo[50],
+    paddingHorizontal: 2,
+  },
+  stepBtn: {
+    width: 22,
+    height: 22,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 999,
+  },
+  stepQty: {
+    minWidth: 14,
+    textAlign: "center",
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.lumo[700],
+    paddingHorizontal: 2,
   },
   itemName: { fontSize: 14, fontWeight: "500", color: colors.ink[900] },
   itemDesc: { marginTop: 2, fontSize: 12, color: colors.ink[500] },
   itemPrice: { fontSize: 14, fontWeight: "600", color: colors.ink[900] },
-  more: { marginTop: 4, fontSize: 11, color: colors.ink[400], textAlign: "center" },
+  footer: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.ink[100],
+  },
+  addBtn: {
+    paddingVertical: 11,
+    borderRadius: 999,
+    backgroundColor: colors.lumo[500],
+    alignItems: "center",
+  },
+  addText: { fontSize: 14, fontWeight: "700", color: colors.white },
 });
 
 // -------------------------------------------------------------------------
