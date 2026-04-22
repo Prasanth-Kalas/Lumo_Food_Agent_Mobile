@@ -145,23 +145,43 @@ export default function ChatScreen() {
           keyExtractor={(m) => m.id}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={<EmptyState />}
-          renderItem={({ item }: { item: ChatMessage }) => (
-            <View style={styles.messageGroup}>
-              {item.content ? (
-                <MessageBubble role={item.role}>{item.content}</MessageBubble>
-              ) : null}
-              {item.toolInvocations?.map((tc) => (
-                <ToolResultRenderer
-                  key={tc.toolCallId}
-                  invocation={tc}
-                  onQuickReply={(text) => {
-                    speech.silence();
-                    append(text);
-                  }}
-                />
-              ))}
-            </View>
-          )}
+          renderItem={({ item }: { item: ChatMessage }) => {
+            // Suppress a redundant restaurant-list card when the same
+            // assistant turn also produced a menu. Happens when the agent
+            // calls find_restaurants (to resolve the ID) and get_menu in
+            // the same step — the user already picked the restaurant, so
+            // re-showing the list is visual noise.
+            const invs = item.toolInvocations ?? [];
+            const hasMenu = invs.some(
+              (i) =>
+                i.state === "result" &&
+                (i.result as { kind?: string } | undefined)?.kind === "menu"
+            );
+            const visibleInvs = hasMenu
+              ? invs.filter(
+                  (i) =>
+                    (i.result as { kind?: string } | undefined)?.kind !==
+                    "restaurants"
+                )
+              : invs;
+            return (
+              <View style={styles.messageGroup}>
+                {item.content ? (
+                  <MessageBubble role={item.role}>{item.content}</MessageBubble>
+                ) : null}
+                {visibleInvs.map((tc) => (
+                  <ToolResultRenderer
+                    key={tc.toolCallId}
+                    invocation={tc}
+                    onQuickReply={(text) => {
+                      speech.silence();
+                      append(text);
+                    }}
+                  />
+                ))}
+              </View>
+            );
+          }}
           ListFooterComponent={isLoading ? <TypingIndicator /> : null}
           keyboardShouldPersistTaps="handled"
         />

@@ -33,9 +33,21 @@ export function useLumoChat(opts: { voiceMode?: boolean } = {}) {
     const abort = streamChat(nextMessages, { voiceMode: optsRef.current.voiceMode === true }, {
       onAssistantTextDelta: (delta) => {
         setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantId ? { ...m, content: m.content + delta } : m
-          )
+          prev.map((m) => {
+            if (m.id !== assistantId) return m;
+            // Glue-space fix: when the model streams text, then calls a tool,
+            // then resumes streaming text, the two halves concat directly —
+            // producing "near you!Got three options..." because the voice-mode
+            // prompt tells the model not to emit markdown/line breaks. If the
+            // existing content ends with sentence-terminating punctuation and
+            // the next delta starts with a letter, insert a single space.
+            const needsSpace =
+              m.content.length > 0 &&
+              /[.!?]$/.test(m.content) &&
+              /^[A-Za-z]/.test(delta);
+            const sep = needsSpace ? " " : "";
+            return { ...m, content: m.content + sep + delta };
+          })
         );
       },
       onToolCall: (inv) => {

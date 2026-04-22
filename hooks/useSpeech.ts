@@ -100,6 +100,26 @@ export function useSpeech() {
       const myGen = genRef.current;
       await unloadCurrent();
 
+      // CRITICAL: reassert playback audio mode before every speak().
+      // expo-speech-recognition flips the iOS AVAudioSession category to
+      // .playAndRecord / .record when the user dictates, and doesn't flip
+      // it back when STT stops. If we don't force allowsRecordingIOS: false
+      // here, the MP3 routes to the ear speaker (or gets suppressed
+      // entirely), which reads as "I can't hear the agent after I speak."
+      try {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          interruptionModeIOS: InterruptionModeIOS.DuckOthers,
+          shouldDuckAndroid: true,
+          interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+          playThroughEarpieceAndroid: false,
+        });
+      } catch {
+        // Non-fatal — we still attempt to play.
+      }
+
       let baseUrl: string;
       try {
         baseUrl = getApiBaseUrl();
