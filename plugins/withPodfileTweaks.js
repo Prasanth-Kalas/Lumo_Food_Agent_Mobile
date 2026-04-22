@@ -19,8 +19,15 @@
  *           falls back to a constexpr constructor the older Clang
  *           accepts. (a) alone is NOT enough on Xcode 26 because
  *           fmt's headers still reach consteval via __cpp_consteval
- *           feature detection. Setting FMT_USE_CONSTEVAL=0 forces the
- *           fallback path regardless of compiler capability.
+ *           feature detection.
+ *      Delivery matters: setting GCC_PREPROCESSOR_DEFINITIONS from
+ *      post_install is unreliable — CocoaPods writes per-target
+ *      xcconfig files that can silently drop table-level defines at
+ *      compile time (observed in RN 0.76 + CocoaPods 1.16). We instead
+ *      pass `-DFMT_USE_CONSTEVAL=0` via OTHER_CPLUSPLUSFLAGS, which is
+ *      appended verbatim to the clang++ command line, AND mirror it
+ *      into the generated fmt.*.xcconfig files so a re-`pod install`
+ *      can't quietly drop it.
  *      Zero runtime impact — fmt ships an identical ABI on both paths
  *      for the parts RN uses.
  *
@@ -43,22 +50,43 @@ const path = require("path");
 // Bump the suffix whenever TWEAK_BLOCK changes so the idempotency guard
 // below re-patches a previously-patched Podfile. Without this, stale
 // prebuilds from an earlier plugin version would never get the new fix.
-const SENTINEL = "# LUMO_PODFILE_TWEAKS_v2";
+const SENTINEL = "# LUMO_PODFILE_TWEAKS_v3";
 
 const TWEAK_BLOCK = `
     ${SENTINEL}
     # See plugins/withPodfileTweaks.js for rationale.
     installer.pods_project.targets.each do |target|
       # fmt: dodge Xcode 26 consteval strictness.
-      # Two coordinated knobs — see plugin docstring for why both are needed.
+      # GCC_PREPROCESSOR_DEFINITIONS from post_install gets merged into a
+      # table that the generated per-target xcconfig can clobber. Passing
+      # -D via OTHER_CPLUSPLUSFLAGS is resistant to that — it's appended
+      # to the compiler invocation verbatim. We also belt-and-suspender
+      # patch the xcconfig files directly so nothing upstream can drop it.
       if target.name == 'fmt'
         target.build_configurations.each do |config|
           config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
-          # Preserve any inherited defines, then force fmt's non-consteval path.
-          defs = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
-          defs = [defs] unless defs.is_a?(Array)
-          defs << 'FMT_USE_CONSTEVAL=0' unless defs.include?('FMT_USE_CONSTEVAL=0')
-          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
+
+          cpp_flags = config.build_settings['OTHER_CPLUSPLUSFLAGS'] || ['$(inherited)']
+          cpp_flags = [cpp_flags] unless cpp_flags.is_a?(Array)
+          cpp_flags << '-DFMT_USE_CONSTEVAL=0' unless cpp_flags.include?('-DFMT_USE_CONSTEVAL=0')
+          config.build_settings['OTHER_CPLUSPLUSFLAGS'] = cpp_flags
+
+          # Also append to the generated xcconfig so the flag survives
+          # any later regeneration and is visible on the final compile line.
+          xcconfig_ref = config.base_configuration_reference
+          next unless xcconfig_ref
+          xcconfig_path = xcconfig_ref.real_path.to_s
+          if File.exist?(xcconfig_path)
+            contents = File.read(xcconfig_path)
+            unless contents.include?('FMT_USE_CONSTEVAL=0')
+              File.open(xcconfig_path, 'a') do |f|
+                f.puts ''
+                f.puts '// Lumo: Xcode 26 fmt consteval workaround.'
+                f.puts 'OTHER_CPLUSPLUSFLAGS = $(inherited) -DFMT_USE_CONSTEVAL=0'
+                f.puts 'CLANG_CXX_LANGUAGE_STANDARD = c++17'
+              end
+            end
+          end
         end
       end
 
