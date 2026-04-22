@@ -8,14 +8,21 @@
  *
  * Fixes applied (keep this comment list in sync with the hook body):
  *
- *   1) fmt → force C++17.
- *      RN 0.76 pins `fmt` to an older version whose FMT_STRING() wraps
- *      `consteval` constructors in a way Xcode 26's Clang rejects:
+ *   1) fmt → disable consteval FMT_STRING + force C++17.
+ *      RN 0.76 pins `fmt` to an older version whose FMT_STRING() macro
+ *      wraps `consteval` constructors in a way Xcode 26's Clang rejects:
  *        "call to consteval function ... is not a constant expression"
- *      Dropping the fmt pod to CLANG_CXX_LANGUAGE_STANDARD c++17 bypasses
- *      the stricter C++20 consteval path without touching the rest of
- *      the build. Zero runtime impact — fmt ships an identical ABI on
- *      both standards for the parts RN uses.
+ *      Two coordinated knobs defeat this:
+ *        a) CLANG_CXX_LANGUAGE_STANDARD = c++17 — keeps the translation
+ *           unit off the stricter C++20 consteval path.
+ *        b) FMT_USE_CONSTEVAL=0 — fmt's own escape hatch; the macro
+ *           falls back to a constexpr constructor the older Clang
+ *           accepts. (a) alone is NOT enough on Xcode 26 because
+ *           fmt's headers still reach consteval via __cpp_consteval
+ *           feature detection. Setting FMT_USE_CONSTEVAL=0 forces the
+ *           fallback path regardless of compiler capability.
+ *      Zero runtime impact — fmt ships an identical ABI on both paths
+ *      for the parts RN uses.
  *
  *   2) RNCAsyncStorage resource bundles → bump IPHONEOS_DEPLOYMENT_TARGET
  *      to 15.1 (matches our app-wide minimum). The resource bundle
@@ -33,16 +40,25 @@ const { withDangerousMod } = require("expo/config-plugins");
 const fs = require("fs");
 const path = require("path");
 
-const SENTINEL = "# LUMO_PODFILE_TWEAKS_v1";
+// Bump the suffix whenever TWEAK_BLOCK changes so the idempotency guard
+// below re-patches a previously-patched Podfile. Without this, stale
+// prebuilds from an earlier plugin version would never get the new fix.
+const SENTINEL = "# LUMO_PODFILE_TWEAKS_v2";
 
 const TWEAK_BLOCK = `
     ${SENTINEL}
     # See plugins/withPodfileTweaks.js for rationale.
     installer.pods_project.targets.each do |target|
-      # fmt: dodge Xcode 26 consteval strictness by pinning to C++17.
+      # fmt: dodge Xcode 26 consteval strictness.
+      # Two coordinated knobs — see plugin docstring for why both are needed.
       if target.name == 'fmt'
         target.build_configurations.each do |config|
           config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+          # Preserve any inherited defines, then force fmt's non-consteval path.
+          defs = config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] || ['$(inherited)']
+          defs = [defs] unless defs.is_a?(Array)
+          defs << 'FMT_USE_CONSTEVAL=0' unless defs.include?('FMT_USE_CONSTEVAL=0')
+          config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] = defs
         end
       end
 
