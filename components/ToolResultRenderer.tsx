@@ -20,6 +20,7 @@ import type {
   ToolInvocation,
   ToolResult,
 } from "@/lib/types";
+import { PaymentSheet } from "./PaymentSheet";
 
 export function ToolResultRenderer({
   invocation,
@@ -67,6 +68,23 @@ export function ToolResultRenderer({
           body="Tell me what you're hungry for and I'll build it."
         />
       );
+    case "payment_required":
+      return (
+        <PaymentSheet
+          clientSecret={result.client_secret}
+          publishableKey={result.publishable_key}
+          amountCents={result.amount_cents}
+          onPaid={() => onQuickReply("payment confirmed")}
+        />
+      );
+    case "payment_skipped":
+      return (
+        <InfoCard
+          icon={<ShoppingBag size={16} color={colors.ink[500]} />}
+          title="Paying on delivery"
+          body={`No card required in demo mode. Total ${formatPrice(result.amount_cents)}.`}
+        />
+      );
     case "order_placed":
       return <OrderConfirmation order={result.order} />;
     case "order_status":
@@ -97,6 +115,7 @@ function WorkingPill({ toolName }: { toolName: string }) {
     get_restaurant_menu: "Loading menu…",
     build_cart: "Building your cart…",
     get_cart_summary: "Reviewing your cart…",
+    create_payment_intent: "Setting up payment…",
     place_order: "Placing your order…",
     get_order_status: "Checking status…",
     get_order_history: "Pulling recent orders…",

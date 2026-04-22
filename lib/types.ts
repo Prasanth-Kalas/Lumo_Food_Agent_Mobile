@@ -70,6 +70,8 @@ export interface Order {
     | "delivered"
     | "cancelled";
   estimated_delivery_at: string;
+  /** Stripe PaymentIntent id stamped on the order when Stripe is configured. */
+  payment_intent_id?: string;
 }
 
 // ---- Chat message shapes ---------------------------------------------------
@@ -103,6 +105,15 @@ export type ToolResult =
     }
   | { kind: "cart"; cart: Cart }
   | { kind: "empty_cart" }
+  | {
+      kind: "payment_required";
+      payment_intent_id: string;
+      client_secret: string;
+      amount_cents: number;
+      currency: string;
+      publishable_key: string | null;
+    }
+  | { kind: "payment_skipped"; reason: string; amount_cents: number }
   | { kind: "order_placed"; order: Order }
   | { kind: "order_status"; order: Order }
   | { kind: "order_history"; orders: Order[] }

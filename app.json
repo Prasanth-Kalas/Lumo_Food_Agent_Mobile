@@ -49,6 +49,13 @@
           "speechRecognitionPermission": "Lumo turns your voice into text to understand your order.",
           "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
         }
+      ],
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.lumotechnologies.lumo",
+          "enableGooglePay": false
+        }
       ]
     ],
     "experiments": {
