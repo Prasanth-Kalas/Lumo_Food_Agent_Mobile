@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "scheme": "lumo",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -18,7 +18,9 @@
       "bundleIdentifier": "com.lumotechnologies.lumo",
       "buildNumber": "1",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSSpeechRecognitionUsageDescription": "Lumo turns your voice into text to understand your order.",
+        "NSMicrophoneUsageDescription": "Let Lumo listen so you can talk to it instead of typing your order."
       }
     },
     "android": {
@@ -27,7 +29,10 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#4361ee"
-      }
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -47,7 +52,9 @@
         {
           "microphonePermission": "Let Lumo listen so you can talk to it instead of typing your order.",
           "speechRecognitionPermission": "Lumo turns your voice into text to understand your order.",
-          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+          "androidSpeechServicePackages": [
+            "com.google.android.googlequicksearchbox"
+          ]
         }
       ],
       [
@@ -66,8 +73,9 @@
         "origin": false
       },
       "eas": {
-        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+        "projectId": "23527f6e-c995-48f9-b808-a83e07913df4"
       }
-    }
+    },
+    "owner": "prasanthkl"
   }
 }
