@@ -77,7 +77,8 @@
             "deploymentTarget": "15.1"
           }
         }
-      ]
+      ],
+      "./plugins/withPodfileTweaks.js"
     ],
     "experiments": {
       "typedRoutes": true
