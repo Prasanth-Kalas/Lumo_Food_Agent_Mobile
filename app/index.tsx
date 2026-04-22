@@ -37,9 +37,9 @@ const SUGGESTIONS = [
 ];
 
 export default function ChatScreen() {
-  const { messages, isLoading, append, stop } = useLumoChat();
-  const [input, setInput] = useState("");
   const { voiceMode, toggleVoiceMode } = useVoiceModePref();
+  const { messages, isLoading, append, stop } = useLumoChat({ voiceMode });
+  const [input, setInput] = useState("");
   const insets = useSafeAreaInsets();
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const speech = useSpeech();

@@ -6,11 +6,18 @@ import type { ChatMessage, ToolInvocation } from "@/lib/types";
  * Minimal replacement for `ai/react`'s useChat that works cleanly on RN.
  * Drives the mobile chat screen: keeps messages, streams assistant text +
  * tool invocations, exposes `append(text)` and `stop()`.
+ *
+ * Options:
+ *   voiceMode — forwarded to /api/chat so the backend can inject the
+ *     "write for the ear" prompt block when the user has voice replies on.
  */
-export function useLumoChat() {
+export function useLumoChat(opts: { voiceMode?: boolean } = {}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const abortRef = useRef<(() => void) | null>(null);
+  // Pin latest options in a ref so the closure stays stable across re-renders.
+  const optsRef = useRef(opts);
+  optsRef.current = opts;
 
   const sendCore = useCallback((nextMessages: ChatMessage[]) => {
     setMessages(nextMessages);
@@ -23,7 +30,7 @@ export function useLumoChat() {
       { id: assistantId, role: "assistant", content: "", toolInvocations: [] },
     ]);
 
-    const abort = streamChat(nextMessages, {
+    const abort = streamChat(nextMessages, { voiceMode: optsRef.current.voiceMode === true }, {
       onAssistantTextDelta: (delta) => {
         setMessages((prev) =>
           prev.map((m) =>

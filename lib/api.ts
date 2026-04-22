@@ -60,8 +60,14 @@ export interface StreamHandlers {
  *    streaming. In production RN this works; if a device buffers the whole
  *    response before flushing, we still get it in one shot at state 4.
  */
+export interface StreamChatOptions {
+  /** Forwarded to the backend so it can tailor the system prompt. */
+  voiceMode?: boolean;
+}
+
 export function streamChat(
   messages: ChatMessage[],
+  options: StreamChatOptions,
   handlers: StreamHandlers
 ): () => void {
   const xhr = new XMLHttpRequest();
@@ -151,6 +157,7 @@ export function streamChat(
     xhr.send(
       JSON.stringify({
         messages: messages.map(({ role, content }) => ({ role, content })),
+        voiceMode: options.voiceMode === true,
       })
     );
   } catch (err) {
