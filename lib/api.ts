@@ -25,6 +25,7 @@
 
 import Constants from "expo-constants";
 import type { ChatMessage, ToolInvocation } from "./types";
+import { getOrCreateSessionId, peekSessionId } from "./sessionId";
 
 export function getApiBaseUrl(): string {
   const fromEnv = process.env.EXPO_PUBLIC_API_BASE_URL;
@@ -153,16 +154,39 @@ export function streamChat(
     handlers.onError(new Error("Chat request timed out."));
   };
 
-  try {
-    xhr.send(
-      JSON.stringify({
-        messages: messages.map(({ role, content }) => ({ role, content })),
-        voiceMode: options.voiceMode === true,
-      })
-    );
-  } catch (err) {
-    done = true;
-    handlers.onError(err instanceof Error ? err : new Error(String(err)));
+  // Resolve sessionId. peekSessionId() returns the warm-cached value the
+  // hook has already primed; if it's null (very first message after fresh
+  // install, before the cache warmed) we kick off an async resolve and
+  // send once it lands. Either branch eventually calls xhr.send() exactly
+  // once.
+  const cachedSid = peekSessionId();
+  const sendBody = (sessionId: string | null) => {
+    if (aborted) return;
+    try {
+      xhr.send(
+        JSON.stringify({
+          messages: messages.map(({ role, content }) => ({ role, content })),
+          voiceMode: options.voiceMode === true,
+          ...(sessionId ? { sessionId } : {}),
+        })
+      );
+    } catch (err) {
+      done = true;
+      handlers.onError(err instanceof Error ? err : new Error(String(err)));
+    }
+  };
+
+  if (cachedSid) {
+    sendBody(cachedSid);
+  } else {
+    getOrCreateSessionId()
+      .then((sid) => sendBody(sid))
+      .catch(() => {
+        // Worst-case: backend will fall back to DEFAULT_SESSION_ID ("demo").
+        // Not ideal but not fatal — a second attempt usually has the cache
+        // warm.
+        sendBody(null);
+      });
   }
 
   return () => {

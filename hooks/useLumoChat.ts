@@ -1,5 +1,6 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { streamChat } from "@/lib/api";
+import { getOrCreateSessionId } from "@/lib/sessionId";
 import type { ChatMessage, ToolInvocation } from "@/lib/types";
 
 /**
@@ -18,6 +19,16 @@ export function useLumoChat(opts: { voiceMode?: boolean } = {}) {
   // Pin latest options in a ref so the closure stays stable across re-renders.
   const optsRef = useRef(opts);
   optsRef.current = opts;
+
+  // Prime the sessionId cache as soon as the chat hook mounts. On warm
+  // launches this is a ~1ms AsyncStorage read; on first launch it mints and
+  // persists a new id. Either way, by the time the user taps send, the
+  // cache is hot and streamChat ships the id with the first request.
+  useEffect(() => {
+    getOrCreateSessionId().catch(() => {
+      // Non-fatal — streamChat falls back to a lazy resolve on send.
+    });
+  }, []);
 
   const sendCore = useCallback((nextMessages: ChatMessage[]) => {
     setMessages(nextMessages);

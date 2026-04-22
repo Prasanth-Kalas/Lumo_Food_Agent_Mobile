@@ -50,43 +50,56 @@ const path = require("path");
 // Bump the suffix whenever TWEAK_BLOCK changes so the idempotency guard
 // below re-patches a previously-patched Podfile. Without this, stale
 // prebuilds from an earlier plugin version would never get the new fix.
-const SENTINEL = "# LUMO_PODFILE_TWEAKS_v3";
+const SENTINEL = "# LUMO_PODFILE_TWEAKS_v4";
 
 const TWEAK_BLOCK = `
     ${SENTINEL}
     # See plugins/withPodfileTweaks.js for rationale.
+
+    # fmt: dodge Xcode 26 consteval strictness by neutralizing the
+    # FMT_CONSTEVAL macro at the fmt source level. We previously tried
+    # -DFMT_USE_CONSTEVAL=0 via GCC_PREPROCESSOR_DEFINITIONS, then via
+    # OTHER_CPLUSPLUSFLAGS + xcconfig append — neither stuck under RN
+    # 0.76's pinned fmt + Xcode 26. Direct source patching is the
+    # nuclear-but-deterministic option: rewrite "#define FMT_CONSTEVAL
+    # consteval" to define it as empty so the constructor prefix is
+    # gone entirely. Safe — fmt falls back to a constexpr constructor
+    # that Xcode 26's Clang accepts without complaint.
+    fmt_headers_dir = File.join(installer.sandbox.root.to_s, 'fmt', 'include', 'fmt')
+    if Dir.exist?(fmt_headers_dir)
+      Dir.glob(File.join(fmt_headers_dir, '*.h')).each do |header|
+        src = File.read(header)
+        next unless src =~ /^\\s*#\\s*define\\s+FMT_CONSTEVAL\\s+consteval\\b/
+        patched = src.gsub(
+          /^(\\s*)#\\s*define\\s+FMT_CONSTEVAL\\s+consteval\\b.*$/,
+          '\\1#define FMT_CONSTEVAL /* Lumo: neutralized for Xcode 26 */'
+        )
+        File.write(header, patched) if patched != src
+      end
+
+      # fmt exposes a second macro, FMT_CONSTEVAL20, in newer headers.
+      # Neutralize it too — same rationale.
+      Dir.glob(File.join(fmt_headers_dir, '*.h')).each do |header|
+        src = File.read(header)
+        next unless src =~ /^\\s*#\\s*define\\s+FMT_CONSTEVAL20\\s+consteval\\b/
+        patched = src.gsub(
+          /^(\\s*)#\\s*define\\s+FMT_CONSTEVAL20\\s+consteval\\b.*$/,
+          '\\1#define FMT_CONSTEVAL20 constexpr'
+        )
+        File.write(header, patched) if patched != src
+      end
+    end
+
     installer.pods_project.targets.each do |target|
-      # fmt: dodge Xcode 26 consteval strictness.
-      # GCC_PREPROCESSOR_DEFINITIONS from post_install gets merged into a
-      # table that the generated per-target xcconfig can clobber. Passing
-      # -D via OTHER_CPLUSPLUSFLAGS is resistant to that — it's appended
-      # to the compiler invocation verbatim. We also belt-and-suspender
-      # patch the xcconfig files directly so nothing upstream can drop it.
+      # fmt build settings — belt-and-suspenders, in case a future fmt
+      # bump reintroduces the macro via a path our regex misses.
       if target.name == 'fmt'
         target.build_configurations.each do |config|
           config.build_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
-
           cpp_flags = config.build_settings['OTHER_CPLUSPLUSFLAGS'] || ['$(inherited)']
           cpp_flags = [cpp_flags] unless cpp_flags.is_a?(Array)
           cpp_flags << '-DFMT_USE_CONSTEVAL=0' unless cpp_flags.include?('-DFMT_USE_CONSTEVAL=0')
           config.build_settings['OTHER_CPLUSPLUSFLAGS'] = cpp_flags
-
-          # Also append to the generated xcconfig so the flag survives
-          # any later regeneration and is visible on the final compile line.
-          xcconfig_ref = config.base_configuration_reference
-          next unless xcconfig_ref
-          xcconfig_path = xcconfig_ref.real_path.to_s
-          if File.exist?(xcconfig_path)
-            contents = File.read(xcconfig_path)
-            unless contents.include?('FMT_USE_CONSTEVAL=0')
-              File.open(xcconfig_path, 'a') do |f|
-                f.puts ''
-                f.puts '// Lumo: Xcode 26 fmt consteval workaround.'
-                f.puts 'OTHER_CPLUSPLUSFLAGS = $(inherited) -DFMT_USE_CONSTEVAL=0'
-                f.puts 'CLANG_CXX_LANGUAGE_STANDARD = c++17'
-              end
-            end
-          end
         end
       end
 
