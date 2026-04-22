@@ -12,6 +12,7 @@ export function SuggestionRow({
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
+      style={styles.scroll}
       contentContainerStyle={styles.row}
     >
       {suggestions.map((s) => (
@@ -31,7 +32,17 @@ export function SuggestionRow({
 }
 
 const styles = StyleSheet.create({
-  row: { paddingHorizontal: 16, paddingBottom: 10, gap: 8 },
+  // Without flexGrow: 0 the ScrollView eats all the remaining vertical space
+  // above the composer, which then makes the chips inside stretch to full
+  // height (cross-axis default is 'stretch') — giving giant ovals.
+  scroll: { flexGrow: 0 },
+  row: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    gap: 8,
+    // Keep chips sized to their content instead of stretching vertically.
+    alignItems: "center",
+  },
   chip: {
     paddingHorizontal: 14,
     paddingVertical: 8,
